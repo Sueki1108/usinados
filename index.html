@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orçamento e Cadastro de Matéria Prima</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div id="root" class="w-full max-w-4xl bg-white rounded-lg shadow-lg flex flex-col min-h-[700px] md:min-h-[750px]">
+        <!-- Fallback message if React fails to load -->
+        <div class="p-4 text-center text-gray-600">
+            Carregando aplicação... Se esta mensagem persistir, pode haver um erro. Por favor, verifique o console do navegador.
+        </div>
+    </div>
+
+    <!-- React and ReactDOM CDNs -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX transformation in the browser (for development, not production) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Firebase CDNs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase functions globally for Babel to pick up in the script type="text/babel"
+        window.firebase = {
+            initializeApp,
+            getAuth,
+            signInAnonymously,
+            signInWithCustomToken,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut,
+            onAuthStateChanged,
+            getFirestore,
+            doc,
+            getDoc,
+            addDoc,
+            setDoc,
+            updateDoc,
+            deleteDoc,
+            onSnapshot,
+            collection,
+            query,
+            where,
+            getDocs
+        };
+    </script>
+
+    <script type="text/babel">
+        // Global error handler for uncaught JavaScript errors
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error("Um erro inesperado ocorreu:", message, "na linha", lineno, "na coluna", colno, "Source:", source);
+            const rootElement = document.getElementById('root');
+            if (rootElement) {
+                rootElement.innerHTML = `
+                    <div class="p-8 bg-red-100 border border-red-400 text-red-700 rounded-lg text-center">
+                        <h2 class="font-bold text-lg mb-2">Erro ao carregar a aplicação!</h2>
+                        <p>Por favor, tente novamente. Se o problema persistir, entre em contato com o suporte.</p>
+                        <p class="text-sm mt-2">Detalhes: ${message} (Linha: ${lineno})</p>
+                        <p class="text-xs mt-1">Verifique o console do navegador para mais informações.</p>
+                    </div>
+                `;
+            }
+            return true; // Prevents default browser error handling
+        };
+
+        // Utility functions for input validation
+        const validarEntradaPercentual = (novoTexto) => {
+            if (!novoTexto) return true;
+            try {
+                const valor = parseFloat(novoTexto);
+                const partes = novoTexto.split('.');
+                if (partes.length > 1 && partes[1].length > 2) {
+                    return false;
+                }
+                return valor >= 0 && valor <= 100;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        const validarEntradaDecimal = (novoTexto) => {
+            if (!novoTexto) return true;
+            try {
+                parseFloat(novoTexto);
+                const partes = novoTexto.split('.');
+                if (partes.length > 1 && partes[1].length > 4) {
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        const validarEntradaNumerica = (novoTexto) => {
+            if (!novoTexto) return true;
+            try {
+                parseFloat(novoTexto);
+                const partes = novoTexto.split('.');
+                if (partes.length > 1 && partes[1].length > 2) {
+                    return false;
+                }
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        // Custom Modal Component for prompts and confirmations
+        const CustomModal = ({ isOpen, title, message, onConfirm, onCancel, inputPlaceholder, inputValue, onInputChange, showInput, showDeleteButton, onDelete }) => {
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm mx-4">
+                        <h3 className="text-lg font-bold mb-4 text-gray-800">{title}</h3>
+                        <p className="mb-4 text-gray-700">{message}</p>
+                        {showInput && (
+                            <input
+                                type="text"
+                                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4"
+                                placeholder={inputPlaceholder}
+                                value={inputValue}
+                                onChange={(e) => onInputChange(e.target.value)}
+                            />
+                        )}
+                        <div className="flex justify-end space-x-2">
+                            {showDeleteButton && (
+                                <button
+                                    onClick={onDelete}
+                                    className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-200"
+                                >
+                                    Excluir
+                                </button>
+                            )}
+                            <button
+                                onClick={onCancel}
+                                className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded transition duration-200"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={onConfirm}
+                                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-200"
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Custom Toast/Notification Component
+        const Toast = ({ message, type, onClose }) => {
+            const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+            const textColor = 'text-white';
+
+            if (!message) return null;
+
+            return (
+                <div className={`fixed bottom-4 right-4 ${bgColor} ${textColor} p-3 rounded-lg shadow-lg flex items-center justify-between z-50 transition-transform transform duration-300 ease-out translate-y-0 opacity-100`}>
+                    <span>{message}</span>
+                    <button onClick={onClose} className="ml-4 font-bold">
+                        &times;
+                    </button>
+                </div>
+            );
+        };
+
+        // Component for the Material Configuration Tab
+        const MaterialConfigTab = ({ material, config, onConfigChange }) => {
+            const handleInputChange = (field, value) => {
+                onConfigChange(material, { ...config, [field]: value });
+            };
+
+            return (
+                <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Margem de Lucro (%):
+                    </label>
+                    <input
+                        type="text"
+                        className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={config.margem_lucro || ''}
+                        onChange={(e) => {
+                            if (validarEntradaPercentual(e.target.value)) {
+                                handleInputChange('margem_lucro', e.target.value);
+                            }
+                        }}
+                    />
+
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Hora Máquina (%):
+                    </label>
+                    <input
+                        type="text"
+                        className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={config.hora_maquina || ''}
+                        onChange={(e) => {
+                            if (validarEntradaPercentual(e.target.value)) {
+                                handleInputChange('hora_maquina', e.target.value);
+                            }
+                        }}
+                    />
+
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Ferramenta (%):
+                    </label>
+                    <input
+                        type="text"
+                        className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={config.ferramenta || ''}
+                        onChange={(e) => {
+                            if (validarEntradaPercentual(e.target.value)) {
+                                handleInputChange('ferramenta', e.target.value);
+                            }
+                        }}
+                    />
+
+                    <label className="block text-gray-700 text-sm font-bold mb-2">
+                        Perda por Peça:
+                    </label>
+                    <input
+                        type="text"
+                        className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={config.perda_peca || ''}
+                        onChange={(e) => {
+                            if (validarEntradaDecimal(e.target.value)) {
+                                handleInputChange('perda_peca', e.target.value);
+                            }
+                        }}
+                    />
+                </div>
+            );
+        };
+
+        // Component for the "Configurações" tab
+        const ConfiguracoesTab = ({ materialsConfig, setMaterialsConfig, onSaveConfig, showToast }) => {
+            const [activeMaterialTab, setActiveMaterialTab] = React.useState(0);
+            const [isModalOpen, setIsModalOpen] = React.useState(false);
+            const [modalTitle, setModalTitle] = React.useState('');
+            const [modalMessage, setModalMessage] = React.useState('');
+            const [modalInputPlaceholder, setModalInputPlaceholder] = React.useState('');
+            const [modalInputValue, setModalInputValue] = React.useState('');
+            const [modalShowInput, setModalShowInput] = React.useState(false);
+            const [modalShowDeleteButton, setModalShowDeleteButton] = React.useState(false);
+            const [modalConfirmAction, setModalConfirmAction] = React.useState(null);
+            const [materialIndexToEdit, setMaterialIndexToEdit] = React.useState(null);
+
+            const handleMaterialConfigChange = (materialName, newConfig) => {
+                setMaterialsConfig(prev =>
+                    prev.map(mat => (mat.name === materialName ? { ...mat, config: newConfig } : mat))
+                );
+            };
+
+            const addMaterialTab = () => {
+                const defaultName = `Novo${materialsConfig.length + 1}`;
+                setModalTitle("Novo Material");
+                setModalMessage("Digite o nome do novo material:");
+                setModalInputPlaceholder("Nome do Material");
+                setModalInputValue(defaultName);
+                setModalShowInput(true);
+                setModalShowDeleteButton(false);
+                setModalConfirmAction(() => (name) => {
+                    if (name) {
+                        setMaterialsConfig(prev => [...prev, { name, config: {} }]);
+                        setActiveMaterialTab(materialsConfig.length); // Select the newly added tab
+                        showToast("Material adicionado com sucesso!", "success");
+                    } else {
+                        showToast("Nome do material não pode ser vazio.", "error");
+                    }
+                    setIsModalOpen(false);
+                });
+                setIsModalOpen(true);
+            };
+
+            const handleTabClick = (index) => {
+                if (index === materialsConfig.length) { // Clicked on '+' tab
+                    addMaterialTab();
+                } else {
+                    setActiveMaterialTab(index);
+                }
+            };
+
+            const openRenameModal = (index) => {
+                setMaterialIndexToEdit(index);
+                setModalTitle("Renomear Material");
+                setModalMessage("Digite o novo nome do material:");
+                setModalInputPlaceholder("Novo Nome");
+                setModalInputValue(materialsConfig[index].name);
+                setModalShowInput(true);
+                setModalShowDeleteButton(true);
+                setModalConfirmAction(() => (name) => {
+                    if (name && materialIndexToEdit !== null) {
+                        setMaterialsConfig(prev =>
+                            prev.map((mat, idx) =>
+                                idx === materialIndexToEdit ? { ...mat, name: name } : mat
+                            )
+                        );
+                        showToast("Material renomeado com sucesso!", "success");
+                    } else {
+                        showToast("Nome do material não pode ser vazio.", "error");
+                    }
+                    setIsModalOpen(false);
+                });
+                setIsModalOpen(true);
+            };
+
+            const deleteMaterial = () => {
+                if (materialIndexToEdit !== null) {
+                    setModalTitle("Excluir Material");
+                    setModalMessage(`Deseja excluir o material '${materialsConfig[materialIndexToEdit].name}'?`);
+                    setModalShowInput(false);
+                    setModalShowDeleteButton(false); // No delete button in this confirmation modal
+                    setModalConfirmAction(() => () => {
+                        setMaterialsConfig(prev => prev.filter((_, idx) => idx !== materialIndexToEdit));
+                        if (activeMaterialTab >= materialIndexToEdit && activeMaterialTab > 0) {
+                            setActiveMaterialTab(activeMaterialTab - 1);
+                        } else if (activeMaterialTab === materialIndexToEdit && materialsConfig.length === 1) {
+                            setActiveMaterialTab(0); // If last tab deleted, go to first tab (if any)
+                        }
+                        showToast("Material excluído com sucesso!", "success");
+                        setIsModalOpen(false);
+                    });
+                    setIsModalOpen(true);
+                }
+            };
+
+
+            return (
+                <div className="p-4 flex flex-col h-full">
+                    <div className="flex border-b border-gray-200 overflow-x-auto pb-2">
+                        {materialsConfig.map((mat, index) => (
+                            <div
+                                key={mat.name}
+                                className={`flex-shrink-0 cursor-pointer px-4 py-2 border-r border-gray-200 rounded-tl-md rounded-tr-md transition duration-200 ${
+                                activeMaterialTab === index ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+                                }`}
+                                onClick={() => handleTabClick(index)}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    if (index !== materialsConfig.length) { // Prevent context menu on '+' tab
+                                        openRenameModal(index);
+                                    }
+                                }}
+                            >
+                                {mat.name}
+                            </div>
+                        ))}
+                        <div
+                            className={`flex-shrink-0 cursor-pointer px-4 py-2 rounded-tl-md rounded-tr-md transition duration-200 ${
+                            activeMaterialTab === materialsConfig.length ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+                            }`}
+                            onClick={() => handleTabClick(materialsConfig.length)}
+                        >
+                            +
+                        </div>
+                    </div>
+
+                    <div className="flex-grow p-4 border border-gray-200 rounded-b-md rounded-tr-md overflow-auto mt-2">
+                        {materialsConfig.length > 0 && activeMaterialTab < materialsConfig.length ? (
+                            <MaterialConfigTab
+                                material={materialsConfig[activeMaterialTab].name}
+                                config={materialsConfig[activeMaterialTab].config}
+                                onConfigChange={handleMaterialConfigChange}
+                            />
+                        ) : (
+                            <div className="text-center text-gray-500 py-10">
+                                {materialsConfig.length === 0 ? "Nenhum material configurado. Clique no '+' para adicionar um novo." : "Clique no '+' para adicionar um novo material."}
+                            </div>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={onSaveConfig}
+                        className="mt-4 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200"
+                    >
+                        Salvar Configurações
+                    </button>
+
+                    <CustomModal
+                        isOpen={isModalOpen}
+                        title={modalTitle}
+                        message={modalMessage}
+                        inputPlaceholder={modalInputPlaceholder}
+                        inputValue={modalInputValue}
+                        onInputChange={setModalInputValue}
+                        showInput={modalShowInput}
+                        showDeleteButton={modalShowDeleteButton}
+                        onConfirm={() => modalConfirmAction(modalInputValue)}
+                        onCancel={() => setIsModalOpen(false)}
+                        onDelete={deleteMaterial} // Pass deleteMaterial function
+                    />
+                </div>
+            );
+        };
+
+        // Component for the "Cadastro de Matéria Prima" tab
+        const CadastroMateriaPrimaTab = ({ buchasList, setBuchasList, materialsConfig, showToast, db, userId, appId }) => {
+            const [diCadastro, setDiCadastro] = React.useState('');
+            const [deCadastro, setDeCadastro] = React.useState('');
+            const [alturaCadastro, setAlturaCadastro] = React.useState('');
+            const [materialCadastro, setMaterialCadastro] = React.useState('');
+            const [valorCadastro, setValorCadastro] = React.useState('');
+
+            const buscarPerdaPorPeca = React.useCallback((materialName) => {
+                const material = materialsConfig.find(m => m.name === materialName);
+                if (material && material.config && material.config.perda_peca) {
+                    const perda = parseFloat(material.config.perda_peca);
+                    return isNaN(perda) ? 0 : perda;
+                }
+                return null; // Material or config not found
+            }, [materialsConfig]);
+
+            const calcularCustoPorMm = React.useCallback((bucha) => {
+                const { material, altura, valor } = bucha;
+                const alturaUtil = altura - 25; // Assuming 25mm is the fixed loss
+                if (alturaUtil <= 0) {
+                    return "Altura Inválida";
+                }
+
+                const materialConfig = materialsConfig.find(m => m.name === material);
+                if (!materialConfig || !materialConfig.config) {
+                    return "Material Não Configurado";
+                }
+
+                const { margem_lucro, hora_maquina, ferramenta } = materialConfig.config;
+
+                try {
+                    const margemLucroPercentual = parseFloat(margem_lucro || 0) / 100;
+                    const horaMaquinaPercentual = parseFloat(hora_maquina || 0) / 100;
+                    const ferramentaPercentual = parseFloat(ferramenta || 0) / 100;
+
+                    const custoMargem = valor * margemLucroPercentual;
+                    const custoHoraMaquina = valor * horaMaquinaPercentual;
+                    const custoFerramenta = valor * ferramentaPercentual;
+
+                    const custoTotal = valor + custoMargem + custoHoraMaquina + custoFerramenta;
+                    const custoPorMm = custoTotal / alturaUtil;
+                    return custoPorMm;
+                } catch (e) {
+                    return "Erro de Configuração";
+                }
+            }, [materialsConfig]);
+
+            const adicionarBucha = async () => {
+                if (!userId) {
+                    showToast("Você precisa estar logado para adicionar buchas.", "error");
+                    return;
+                }
+
+                if (diCadastro && deCadastro && alturaCadastro && materialCadastro && valorCadastro) {
+                    try {
+                        const bucha = {
+                            material: materialCadastro,
+                            di: parseFloat(diCadastro),
+                            de: parseFloat(deCadastro),
+                            altura: parseFloat(alturaCadastro),
+                            valor: parseFloat(valorCadastro),
+                        };
+                        const custoMm = calcularCustoPorMm(bucha);
+
+                        if (typeof custoMm === 'string') {
+                            showToast(`Erro ao Calcular Custo: ${custoMm}`, "error");
+                            return;
+                        }
+
+                        // Add to Firestore
+                        const buchasCollectionRef = firebase.collection(db, `artifacts/${appId}/users/${userId}/buchas`);
+                        await firebase.addDoc(buchasCollectionRef, { ...bucha, custo_mm: custoMm });
+
+                        showToast("Bucha adicionada com sucesso!", "success");
+
+                        // Clear fields
+                        setDiCadastro('');
+                        setDeCadastro('');
+                        setAlturaCadastro('');
+                        setMaterialCadastro('');
+                        setValorCadastro('');
+                    } catch (e) {
+                        console.error("Erro ao adicionar bucha:", e);
+                        showToast("Por favor, insira valores numéricos válidos para os diâmetros, altura e valor.", "error");
+                    }
+                } else {
+                    showToast("Por favor, preencha todos os campos para cadastrar a bucha.", "error");
+                }
+            };
+
+            const deleteBucha = async (buchaId) => {
+                if (!userId) {
+                    showToast("Você precisa estar logado para excluir buchas.", "error");
+                    return;
+                }
+                try {
+                    const buchaDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/buchas`, buchaId);
+                    await firebase.deleteDoc(buchaDocRef);
+                    showToast("Bucha excluída com sucesso!", "success");
+                } catch (error) {
+                    console.error("Erro ao excluir bucha:", error);
+                    showToast("Erro ao excluir bucha.", "error");
+                }
+            };
+
+            // Sort buchas for display
+            const sortedBuchas = [...buchasList].sort((a, b) => {
+                if (a.material < b.material) return -1;
+                if (a.material > b.material) return 1;
+                return a.de - b.de;
+            });
+
+            return (
+                <div className="p-4 flex flex-col h-full">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                        <label className="block text-gray-700 text-sm font-bold">Diâmetro Interno:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={diCadastro}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setDiCadastro(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Diâmetro Externo:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={deCadastro}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setDeCadastro(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Altura:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={alturaCadastro}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setAlturaCadastro(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Material:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={materialCadastro}
+                            onChange={(e) => setMaterialCadastro(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Valor da Bucha:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={valorCadastro}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setValorCadastro(e.target.value)}
+                        />
+                        <div className="col-span-1 sm:col-span-2 lg:col-span-1"></div> {/* Spacer */}
+                        <button
+                            onClick={adicionarBucha}
+                            className="col-span-1 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-green-400 transition duration-200"
+                        >
+                            Incluir
+                        </button>
+                    </div>
+
+                    <h3 className="text-lg font-bold mb-2 text-gray-800">Buchas Cadastradas:</h3>
+                    <div className="overflow-auto border border-gray-200 rounded-md flex-grow">
+                        <table className="min-w-full divide-y divide-gray-200">
+                            <thead className="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Material</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DI</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">DE</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Altura</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Valor</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Preço/mm</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {sortedBuchas.map((bucha, index) => (
+                                    <tr key={bucha.id || index} className="hover:bg-gray-50 transition duration-100">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{bucha.material}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{bucha.di.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{bucha.de.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{bucha.altura.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">R$ {bucha.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                            {typeof bucha.custo_mm === 'number' ? `R$ ${bucha.custo_mm.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : bucha.custo_mm}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <button
+                                                onClick={() => deleteBucha(bucha.id)}
+                                                className="text-red-600 hover:text-red-900 ml-4"
+                                            >
+                                                Excluir
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        // Component for the "Orçamento" tab
+        const OrcamentoTab = ({ buchasList, materialsConfig, showToast }) => {
+            const [diOrcamento, setDiOrcamento] = React.useState('');
+            const [deOrcamento, setDeOrcamento] = React.useState('');
+            const [alturaOrcamento, setAlturaOrcamento] = React.useState('');
+            const [materialOrcamento, setMaterialOrcamento] = React.useState('');
+            const [resultadosOrcamento, setResultadosOrcamento] = React.useState('');
+
+            // Function to calculate cost per millimeter for a given bushing
+            const calcularCustoPorMm = React.useCallback((bucha) => {
+                const { material, altura, valor } = bucha;
+                const alturaUtil = altura - 25; // Fixed loss of 25mm for calculation
+                if (alturaUtil <= 0) {
+                    return "Altura Inválida";
+                }
+
+                const materialConfig = materialsConfig.find(m => m.name === material);
+                if (!materialConfig || !materialConfig.config) {
+                    return "Material Não Configurado";
+                }
+
+                const { margem_lucro, hora_maquina, ferramenta } = materialConfig.config;
+
+                try {
+                    const margemLucroPercentual = parseFloat(margem_lucro || 0) / 100;
+                    const horaMaquinaPercentual = parseFloat(hora_maquina || 0) / 100;
+                    const ferramentaPercentual = parseFloat(ferramenta || 0) / 100;
+
+                    const custoMargem = valor * margemLucroPercentual;
+                    const custoHoraMaquina = valor * horaMaquinaPercentual;
+                    const custoFerramenta = valor * ferramentaPercentual;
+
+                    const custoTotal = valor + custoMargem + custoHoraMaquina + custoFerramenta;
+                    const custoPorMm = custoTotal / alturaUtil;
+                    return custoPorMm;
+                } catch (e) {
+                    return "Erro de Configuração";
+                }
+            }, [materialsConfig]);
+
+            // Function to calculate the budget based on user input and available bushings
+            const calcularOrcamento = () => {
+                if (!diOrcamento || !deOrcamento || !alturaOrcamento || !materialOrcamento) {
+                    showToast("Por favor, preencha todos os campos para calcular o orçamento.", "error");
+                    setResultadosOrcamento('');
+                    return;
+                }
+
+                const di = parseFloat(diOrcamento);
+                const de = parseFloat(deOrcamento);
+                const altura = parseFloat(alturaOrcamento);
+                const material = materialOrcamento;
+
+                if (isNaN(di) || isNaN(de) || isNaN(altura)) {
+                    showToast("Por favor, insira valores numéricos válidos para os diâmetros e altura.", "error");
+                    setResultadosOrcamento('');
+                    return;
+                }
+
+                // Filter available bushings that match the material and dimensions
+                const buchasCompativeis = buchasList.filter(bucha =>
+                    bucha.material.toLowerCase() === material.toLowerCase() &&
+                    bucha.di <= di && // Internal diameter must be less than or equal to the requested DI
+                    bucha.de >= de    // External diameter must be greater than or equal to the requested DE
+                );
+
+                if (buchasCompativeis.length === 0) {
+                    setResultadosOrcamento("Nenhuma bucha compatível encontrada com os critérios informados.");
+                    showToast("Nenhuma bucha compatível encontrada.", "error");
+                    return;
+                }
+
+                // Sort compatible bushings to find the "best" one (e.g., smallest DE that fits)
+                const buchaSelecionada = buchasCompativeis.sort((a, b) => a.de - b.de)[0];
+
+                if (!buchaSelecionada) {
+                    setResultadosOrcamento("Não foi possível selecionar uma bucha compatível.");
+                    showToast("Erro ao selecionar bucha compatível.", "error");
+                    return;
+                }
+
+                const custoMm = calcularCustoPorMm(buchaSelecionada);
+
+                if (typeof custoMm === 'string') {
+                    setResultadosOrcamento(`Erro ao calcular o custo: ${custoMm}`);
+                    showToast(`Erro ao calcular o custo: ${custoMm}`, "error");
+                    return;
+                }
+
+                const perdaPorPeca = materialsConfig.find(m => m.name === material)?.config?.perda_peca;
+                const perdaPorPecaFloat = parseFloat(perdaPorPeca || 0);
+
+                if (isNaN(perdaPorPecaFloat)) {
+                    setResultadosOrcamento(`Erro: Configuração de perda por peça para o material '${material}' não encontrada ou inválida.`);
+                    showToast(`Erro: Configuração de perda por peça para o material '${material}' não encontrada ou inválida.`, "error");
+                    return;
+                }
+
+                // Calculate total cost considering the requested height and loss per piece
+                const alturaComPerda = altura + perdaPorPecaFloat;
+                const custoTotal = custoMm * alturaComPerda;
+
+                setResultadosOrcamento(
+                    <div className="bg-blue-50 p-4 rounded-md shadow-inner mt-4">
+                        <h4 className="font-semibold text-blue-800 mb-2">Resultado do Orçamento:</h4>
+                        <p className="text-gray-700">Material Selecionado: <span className="font-medium">{buchaSelecionada.material}</span></p>
+                        <p className="text-gray-700">DI da Bucha: <span className="font-medium">{buchaSelecionada.di.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mm</span></p>
+                        <p className="text-gray-700">DE da Bucha: <span className="font-medium">{buchaSelecionada.de.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mm</span></p>
+                        <p className="text-gray-700">Altura da Bucha: <span className="font-medium">{buchaSelecionada.altura.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mm</span></p>
+                        <p className="text-gray-700">Valor da Bucha: <span className="font-medium">R$ {buchaSelecionada.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></p>
+                        <p className="text-gray-700">Preço por mm (calculado): <span className="font-medium">R$ {custoMm.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</span></p>
+                        <p className="text-gray-700">Perda por Peça (configurada): <span className="font-medium">{perdaPorPecaFloat.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} mm</span></p>
+                        <p className="text-lg font-bold text-blue-900 mt-3">Custo Total Estimado: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    </div>
+                );
+                showToast("Orçamento calculado com sucesso!", "success");
+            };
+
+            return (
+                <div className="p-4 flex flex-col h-full">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                        <label className="block text-gray-700 text-sm font-bold">Diâmetro Interno:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={diOrcamento}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setDiOrcamento(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Diâmetro Externo:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={deOrcamento}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setDeOrcamento(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Altura Desejada:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={alturaOrcamento}
+                            onChange={(e) => validarEntradaNumerica(e.target.value) && setAlturaOrcamento(e.target.value)}
+                        />
+                        <label className="block text-gray-700 text-sm font-bold">Material:</label>
+                        <input
+                            type="text"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            value={materialOrcamento}
+                            onChange={(e) => setMaterialOrcamento(e.target.value)}
+                        />
+                        <div className="col-span-1 sm:col-span-2 lg:col-span-1"></div> {/* Spacer */}
+                        <button
+                            onClick={calcularOrcamento}
+                            className="col-span-1 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200"
+                        >
+                            Calcular Orçamento
+                        </button>
+                    </div>
+
+                    <div className="flex-grow p-4 border border-gray-200 rounded-md overflow-auto mt-4">
+                        {resultadosOrcamento ? resultadosOrcamento : (
+                            <p className="text-center text-gray-500 py-10">Preencha os campos acima e clique em "Calcular Orçamento" para ver os resultados.</p>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        // AuthScreen Component for Login and Registration
+        const AuthScreen = ({ onLoginSuccess, showToast }) => {
+            const [email, setEmail] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            const [isRegistering, setIsRegistering] = React.useState(false);
+            const [loading, setLoading] = React.useState(false);
+
+            const handleAuth = async () => {
+                setLoading(true);
+                try {
+                    if (isRegistering) {
+                        await firebase.createUserWithEmailAndPassword(firebase.getAuth(), email, password);
+                        showToast("Registro bem-sucedido! Você está logado.", "success");
+                    } else {
+                        await firebase.signInWithEmailAndPassword(firebase.getAuth(), email, password);
+                        showToast("Login bem-sucedido!", "success");
+                    }
+                    onLoginSuccess();
+                } catch (error) {
+                    let errorMessage = "Ocorreu um erro.";
+                    if (error.code === 'auth/email-already-in-use') {
+                        errorMessage = "Este e-mail já está em uso.";
+                    } else if (error.code === 'auth/invalid-email') {
+                        errorMessage = "E-mail inválido.";
+                    } else if (error.code === 'auth/weak-password') {
+                        errorMessage = "A senha deve ter pelo menos 6 caracteres.";
+                    } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                        errorMessage = "E-mail ou senha incorretos.";
+                    } else if (error.code === 'auth/operation-not-allowed') {
+                        errorMessage = "Autenticação por E-mail/Senha não habilitada. Por favor, ative-a no console do Firebase.";
+                    }
+                    else {
+                        errorMessage = `Erro de autenticação: ${error.message}`;
+                    }
+                    showToast(errorMessage, "error");
+                    console.error("Auth error:", error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="flex flex-col items-center justify-center p-8 h-full">
+                    <h2 className="text-2xl font-bold mb-6 text-gray-800">{isRegistering ? "Registrar" : "Login"}</h2>
+                    <div className="w-full max-w-sm">
+                        <input
+                            type="email"
+                            placeholder="E-mail"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400 mb-4"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                        />
+                        <input
+                            type="password"
+                            placeholder="Senha"
+                            className="shadow appearance-none border rounded-md w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-400 mb-6"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                        />
+                        <button
+                            onClick={handleAuth}
+                            disabled={loading}
+                            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md w-full focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 mb-4 disabled:opacity-50"
+                        >
+                            {loading ? "Carregando..." : (isRegistering ? "Registrar" : "Login")}
+                        </button>
+                        <button
+                            onClick={() => setIsRegistering(!isRegistering)}
+                            className="text-blue-500 hover:text-blue-700 text-sm w-full transition duration-200"
+                        >
+                            {isRegistering ? "Já tem uma conta? Faça login." : "Não tem uma conta? Registre-se."}
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App Component
+        const App = () => {
+            const [activeTab, setActiveTab] = React.useState('cadastro');
+            const [buchasList, setBuchasList] = React.useState([]);
+            const [materialsConfig, setMaterialsConfig] = React.useState([]);
+            const [toastMessage, setToastMessage] = React.useState('');
+            const [toastType, setToastType] = React.useState('success');
+            const [user, setUser] = React.useState(null);
+            const [isAuthReady, setIsAuthReady] = React.useState(false);
+            const [loadingData, setLoadingData] = React.useState(true);
+
+            // ATENÇÃO: SUBSTITUA ESTE OBJETO COM AS SUAS PRÓPRIAS CREDENCIAIS DO FIREBASE
+            // Você pode encontrar essas credenciais no Console do Firebase > Project settings > Your apps
+            const firebaseConfig = {
+                apiKey: "YOUR_API_KEY", // Substitua pela sua chave de API
+                authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // Substitua pelo seu domínio de autenticação
+                projectId: "YOUR_PROJECT_ID", // Substitua pelo ID do seu projeto
+                storageBucket: "YOUR_PROJECT_ID.appspot.com", // Substitua pelo seu bucket de armazenamento
+                messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // Substitua pelo seu ID de remetente de mensagens
+                appId: "YOUR_APP_ID", // Substitua pelo ID do seu aplicativo
+                measurementId: "YOUR_MEASUREMENT_ID" // Opcional, se você usa Google Analytics
+            };
+
+            // Use o projectId do seu firebaseConfig diretamente para o appId
+            const appId = firebaseConfig.projectId;
+
+
+            // Initialize Firebase app, auth, and firestore using useMemo for stability
+            const app = React.useMemo(() => {
+                try {
+                    return firebase.initializeApp(firebaseConfig);
+                } catch (e) {
+                    console.error("Erro ao inicializar o Firebase:", e);
+                    showToast("Erro ao inicializar o Firebase. Verifique suas credenciais no código.", "error");
+                    return null; // Retorna null para evitar erros subsequentes
+                }
+            }, []); // Dependência vazia para inicializar apenas uma vez
+
+            const auth = React.useMemo(() => app ? firebase.getAuth(app) : null, [app]);
+            const db = React.useMemo(() => app ? firebase.getFirestore(app) : null, [app]);
+
+            // Function to show a toast notification
+            const showToast = (message, type) => {
+                setToastMessage(message);
+                setToastType(type);
+                setTimeout(() => {
+                    setToastMessage('');
+                }, 3000); // Hide after 3 seconds
+            };
+
+            // Authentication state listener
+            React.useEffect(() => {
+                if (!auth) { // Se o Firebase Auth não foi inicializado, não continue
+                    setIsAuthReady(true); // Marca como pronto para exibir a tela de login
+                    setLoadingData(false);
+                    return;
+                }
+
+                const unsubscribe = firebase.onAuthStateChanged(auth, async (currentUser) => {
+                    if (currentUser) {
+                        setUser(currentUser);
+                    } else {
+                        setUser(null);
+                        // Se não houver usuário, tente fazer login anonimamente
+                        try {
+                            await firebase.signInAnonymously(auth);
+                            console.log("Signed in anonymously.");
+                        } catch (error) {
+                            console.error("Erro ao autenticar anonimamente:", error);
+                            showToast("Erro ao autenticar anonimamente. Tente recarregar a página.", "error");
+                        }
+                    }
+                    setIsAuthReady(true);
+                });
+
+                return () => unsubscribe(); // Clean up the listener
+            }, [auth]);
+
+            // Data loading and saving with Firestore
+            React.useEffect(() => {
+                if (!isAuthReady || !user || !db || !appId) { // Certifica-se de que tudo está pronto
+                    setLoadingData(true);
+                    return;
+                }
+
+                const userId = user.uid;
+                const userMaterialsConfigDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/config/materials`);
+                const buchasCollectionRef = firebase.collection(db, `artifacts/${appId}/users/${userId}/buchas`);
+
+                // Fetch materials config
+                const fetchMaterialsConfig = async () => {
+                    try {
+                        const docSnap = await firebase.getDoc(userMaterialsConfigDocRef);
+                        if (docSnap.exists()) {
+                            setMaterialsConfig(docSnap.data().data || []);
+                        } else {
+                            // Set default config if none exists for this user
+                            const defaultMaterials = [
+                                { name: 'Aço 1045', config: { margem_lucro: '20', hora_maquina: '10', ferramenta: '5', perda_peca: '5.00' } },
+                                { name: 'Alumínio', config: { margem_lucro: '25', hora_maquina: '12', ferramenta: '6', perda_peca: '4.50' } },
+                                { name: 'Bronze', config: { margem_lucro: '15', hora_maquina: '8', ferramenta: '4', perda_peca: '6.00' } },
+                            ];
+                            setMaterialsConfig(defaultMaterials);
+                            // Save default config for the new user
+                            await firebase.setDoc(userMaterialsConfigDocRef, { data: defaultMaterials });
+                            showToast("Configurações padrão carregadas. Salve para persistir.", "info");
+                        }
+                    } catch (error) {
+                        console.error("Error fetching materials config:", error);
+                        showToast("Erro ao carregar configurações de materiais.", "error");
+                    }
+                };
+
+                // Setup real-time listener for buchas list
+                const unsubscribeBuchas = firebase.onSnapshot(buchasCollectionRef, (snapshot) => {
+                    const buchas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setBuchasList(buchas);
+                    setLoadingData(false);
+                }, (error) => {
+                    console.error("Error listening to buchas list:", error);
+                    showToast("Erro ao carregar lista de buchas.", "error");
+                    setLoadingData(false);
+                });
+
+                fetchMaterialsConfig();
+
+                return () => unsubscribeBuchas(); // Clean up listener on unmount/user change
+            }, [isAuthReady, user, db, appId]);
+
+            const handleSaveConfig = async () => {
+                if (!user || user.isAnonymous || !db || !appId) {
+                    showToast("Você precisa estar logado para salvar as configurações.", "error");
+                    return;
+                }
+                const userId = user.uid;
+                const userMaterialsConfigDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/config/materials`);
+                try {
+                    await firebase.setDoc(userMaterialsConfigDocRef, { data: materialsConfig });
+                    showToast("Configurações salvas com sucesso!", "success");
+                } catch (error) {
+                    console.error("Error saving materials config:", error);
+                    showToast("Erro ao salvar configurações.", "error");
+                }
+            };
+
+            const handleLogout = async () => {
+                try {
+                    await firebase.signOut(auth);
+                    showToast("Desconectado com sucesso!", "success");
+                    // Clear local state and let the auth listener handle re-authentication (anonymous)
+                    setBuchasList([]);
+                    setMaterialsConfig([]);
+                    setActiveTab('cadastro');
+                } catch (error) {
+                    console.error("Error logging out:", error);
+                    showToast("Erro ao desconectar.", "error");
+                }
+            };
+
+            if (!isAuthReady || loadingData) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full text-gray-600">
+                        <p>Carregando dados...</p>
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mt-4"></div>
+                    </div>
+                );
+            }
+
+            // If user is not logged in (or is anonymous), show the AuthScreen
+            if (!user || user.isAnonymous) {
+                return <AuthScreen onLoginSuccess={() => {}} showToast={showToast} />;
+            }
+
+            return (
+                <div className="flex flex-col h-full w-full">
+                    <div className="flex justify-between items-center border-b border-gray-200 p-2">
+                        <div className="flex">
+                            <button
+                                className={`px-4 py-2 text-md font-medium rounded-tl-lg rounded-tr-lg transition duration-200 ${
+                                    activeTab === 'cadastro' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+                                }`}
+                                onClick={() => setActiveTab('cadastro')}
+                            >
+                                Cadastro de Matéria Prima
+                            </button>
+                            <button
+                                className={`px-4 py-2 text-md font-medium rounded-tl-lg rounded-tr-lg transition duration-200 ${
+                                    activeTab === 'orcamento' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+                                }`}
+                                onClick={() => setActiveTab('orcamento')}
+                            >
+                                Orçamento
+                            </button>
+                            <button
+                                className={`px-4 py-2 text-md font-medium rounded-tl-lg rounded-tr-lg transition duration-200 ${
+                                    activeTab === 'configuracoes' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-200'
+                                }`}
+                                onClick={() => setActiveTab('configuracoes')}
+                            >
+                                Configurações
+                            </button>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-600">Usuário: {user.email || user.uid}</span>
+                            <button
+                                onClick={handleLogout}
+                                className="bg-red-500 hover:bg-red-700 text-white text-sm font-bold py-1 px-3 rounded-md transition duration-200"
+                            >
+                                Sair
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-grow overflow-hidden">
+                        {activeTab === 'cadastro' && (
+                            <CadastroMateriaPrimaTab
+                                buchasList={buchasList}
+                                setBuchasList={setBuchasList}
+                                materialsConfig={materialsConfig}
+                                showToast={showToast}
+                                db={db}
+                                userId={user.uid}
+                                appId={appId}
+                            />
+                        )}
+                        {activeTab === 'orcamento' && (
+                            <OrcamentoTab
+                                buchasList={buchasList}
+                                materialsConfig={materialsConfig}
+                                showToast={showToast}
+                            />
+                        )}
+                        {activeTab === 'configuracoes' && (
+                            <ConfiguracoesTab
+                                materialsConfig={materialsConfig}
+                                setMaterialsConfig={setMaterialsConfig}
+                                onSaveConfig={handleSaveConfig}
+                                showToast={showToast}
+                            />
+                        )}
+                    </div>
+
+                    <Toast message={toastMessage} type={toastType} onClose={() => setToastMessage('')} />
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
