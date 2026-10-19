@@ -6,11 +6,9 @@
     <title>Orçamento e Cadastro de Matéria Prima</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts - Inter -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         }
         /* Custom scrollbar for better aesthetics */
         ::-webkit-scrollbar {
@@ -44,36 +42,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <!-- Babel for JSX transformation in the browser (for development, not production) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Firebase CDNs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Expose Firebase functions globally for Babel to pick up in the script type="text/babel"
-        window.firebase = {
-            initializeApp,
-            getAuth,
-            signInAnonymously,
-            signInWithCustomToken,
-            createUserWithEmailAndPassword,
-            signInWithEmailAndPassword,
-            signOut,
-            onAuthStateChanged,
-            getFirestore,
-            doc,
-            getDoc,
-            addDoc,
-            setDoc,
-            updateDoc,
-            deleteDoc,
-            onSnapshot,
-            collection,
-            query,
-            where,
-            getDocs
-        };
-    </script>
 
     <script type="text/babel">
         // Global error handler for uncaught JavaScript errors
@@ -134,6 +102,37 @@
             } catch (e) {
                 return false;
             }
+        };
+
+        const localApi = {
+            token: sessionStorage.getItem('usinados_token') || '',
+            setToken(token) {
+                this.token = token || '';
+                if (token) sessionStorage.setItem('usinados_token', token);
+                else sessionStorage.removeItem('usinados_token');
+            },
+            async request(path, { method = 'GET', body } = {}) {
+                const response = await fetch(path, {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+                    },
+                    body: body === undefined ? undefined : JSON.stringify(body),
+                });
+                let payload = {};
+                try {
+                    payload = await response.json();
+                } catch (e) {
+                    payload = {};
+                }
+                if (!response.ok) {
+                    const error = new Error(payload.message || 'Ocorreu um erro.');
+                    error.code = payload.code || '';
+                    throw error;
+                }
+                return payload;
+            },
         };
 
         // Custom Modal Component for prompts and confirmations
@@ -427,7 +426,7 @@
         };
 
         // Component for the "Cadastro de Matéria Prima" tab
-        const CadastroMateriaPrimaTab = ({ buchasList, setBuchasList, materialsConfig, showToast, db, userId, appId }) => {
+        const CadastroMateriaPrimaTab = ({ buchasList, setBuchasList, materialsConfig, showToast }) => {
             const [diCadastro, setDiCadastro] = React.useState('');
             const [deCadastro, setDeCadastro] = React.useState('');
             const [alturaCadastro, setAlturaCadastro] = React.useState('');
@@ -475,11 +474,6 @@
             }, [materialsConfig]);
 
             const adicionarBucha = async () => {
-                if (!userId) {
-                    showToast("Você precisa estar logado para adicionar buchas.", "error");
-                    return;
-                }
-
                 if (diCadastro && deCadastro && alturaCadastro && materialCadastro && valorCadastro) {
                     try {
                         const bucha = {
@@ -496,9 +490,11 @@
                             return;
                         }
 
-                        // Add to Firestore
-                        const buchasCollectionRef = firebase.collection(db, `artifacts/${appId}/users/${userId}/buchas`);
-                        await firebase.addDoc(buchasCollectionRef, { ...bucha, custo_mm: custoMm });
+                        const created = await localApi.request('/api/buchas', {
+                            method: 'POST',
+                            body: { ...bucha, custo_mm: custoMm },
+                        });
+                        setBuchasList(prev => [...prev, created]);
 
                         showToast("Bucha adicionada com sucesso!", "success");
 
@@ -518,13 +514,9 @@
             };
 
             const deleteBucha = async (buchaId) => {
-                if (!userId) {
-                    showToast("Você precisa estar logado para excluir buchas.", "error");
-                    return;
-                }
                 try {
-                    const buchaDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/buchas`, buchaId);
-                    await firebase.deleteDoc(buchaDocRef);
+                    await localApi.request(`/api/buchas/${buchaId}`, { method: 'DELETE' });
+                    setBuchasList(prev => prev.filter(item => item.id !== buchaId));
                     showToast("Bucha excluída com sucesso!", "success");
                 } catch (error) {
                     console.error("Erro ao excluir bucha:", error);
@@ -805,14 +797,13 @@
             const handleAuth = async () => {
                 setLoading(true);
                 try {
-                    if (isRegistering) {
-                        await firebase.createUserWithEmailAndPassword(firebase.getAuth(), email, password);
-                        showToast("Registro bem-sucedido! Você está logado.", "success");
-                    } else {
-                        await firebase.signInWithEmailAndPassword(firebase.getAuth(), email, password);
-                        showToast("Login bem-sucedido!", "success");
-                    }
-                    onLoginSuccess();
+                    const result = await localApi.request(isRegistering ? '/api/register' : '/api/login', {
+                        method: 'POST',
+                        body: { email, password },
+                    });
+                    localApi.setToken(result.token);
+                    showToast(isRegistering ? "Registro bem-sucedido! Você está logado." : "Login bem-sucedido!", "success");
+                    await onLoginSuccess();
                 } catch (error) {
                     let errorMessage = "Ocorreu um erro.";
                     if (error.code === 'auth/email-already-in-use') {
@@ -824,7 +815,7 @@
                     } else if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                         errorMessage = "E-mail ou senha incorretos.";
                     } else if (error.code === 'auth/operation-not-allowed') {
-                        errorMessage = "Autenticação por E-mail/Senha não habilitada. Por favor, ative-a no console do Firebase.";
+                        errorMessage = "Cadastro local indisponível. Recarregue a página e tente de novo.";
                     }
                     else {
                         errorMessage = `Erro de autenticação: ${error.message}`;
@@ -883,133 +874,78 @@
             const [isAuthReady, setIsAuthReady] = React.useState(false);
             const [loadingData, setLoadingData] = React.useState(true);
 
-            // ATENÇÃO: SUBSTITUA ESTE OBJETO COM AS SUAS PRÓPRIAS CREDENCIAIS DO FIREBASE
-            // Você pode encontrar essas credenciais no Console do Firebase > Project settings > Your apps
-            const firebaseConfig = {
-                apiKey: "AIzaSyCc0dwXLJs0rVp-vN_sz9TOaCa18C6V4Vg", // Substitua pela sua chave de API
-                authDomain: "usinados.firebaseapp.com", // Substitua pelo seu domínio de autenticação
-                projectId: "usinados", // Substitua pelo ID do seu projeto
-                storageBucket: "usinados.firebasestorage.app", // Substitua pelo seu bucket de armazenamento
-                messagingSenderId: "847564050137", // Substitua pelo seu ID de remetente de mensagens
-                appId: "1:847564050137:web:97192330400772612b78c8", // Substitua pelo ID do seu aplicativo
-                measurementId: "G-CY9CWDJTGS" // Opcional, se você usa Google Analytics
-            };
-
-            // Use o projectId do seu firebaseConfig diretamente para o appId
-            const appId = firebaseConfig.projectId;
-
-
-            // Initialize Firebase app, auth, and firestore using useMemo for stability
-            const app = React.useMemo(() => {
-                try {
-                    return firebase.initializeApp(firebaseConfig);
-                } catch (e) {
-                    console.error("Erro ao inicializar o Firebase:", e);
-                    showToast("Erro ao inicializar o Firebase. Verifique suas credenciais no código.", "error");
-                    return null; // Retorna null para evitar erros subsequentes
-                }
-            }, []); // Dependência vazia para inicializar apenas uma vez
-
-            const auth = React.useMemo(() => app ? firebase.getAuth(app) : null, [app]);
-            const db = React.useMemo(() => app ? firebase.getFirestore(app) : null, [app]);
-
-            // Function to show a toast notification
             const showToast = (message, type) => {
                 setToastMessage(message);
                 setToastType(type);
                 setTimeout(() => {
                     setToastMessage('');
-                }, 3000); // Hide after 3 seconds
+                }, 3000);
             };
 
-            // Authentication state listener
-            React.useEffect(() => {
-                if (!auth) { // Se o Firebase Auth não foi inicializado, não continue
-                    setIsAuthReady(true); // Marca como pronto para exibir a tela de login
-                    setLoadingData(false);
-                    return;
-                }
+            const loadAccount = async () => {
+                const materials = await localApi.request('/api/materials');
+                const buchas = await localApi.request('/api/buchas');
+                const me = await localApi.request('/api/me');
+                setUser({ email: me.email, uid: me.email, isAnonymous: false });
+                setMaterialsConfig(materials.data || []);
+                setBuchasList(buchas.items || []);
+            };
 
-                const unsubscribe = firebase.onAuthStateChanged(auth, async (currentUser) => {
-                    if (currentUser) {
-                        setUser(currentUser);
-                    } else {
-                        setUser(null);
-                        // Se não houver usuário, tente fazer login anonimamente
-                        try {
-                            await firebase.signInAnonymously(auth);
-                            console.log("Signed in anonymously.");
-                        } catch (error) {
-                            console.error("Erro ao autenticar anonimamente:", error);
-                            showToast("Erro ao autenticar anonimamente. Tente recarregar a página.", "error");
+            React.useEffect(() => {
+                let active = true;
+                (async () => {
+                    if (!localApi.token) {
+                        if (active) {
+                            setUser(null);
+                            setIsAuthReady(true);
+                            setLoadingData(false);
                         }
+                        return;
                     }
-                    setIsAuthReady(true);
-                });
-
-                return () => unsubscribe(); // Clean up the listener
-            }, [auth]);
-
-            // Data loading and saving with Firestore
-            React.useEffect(() => {
-                if (!isAuthReady || !user || !db || !appId) { // Certifica-se de que tudo está pronto
-                    setLoadingData(true);
-                    return;
-                }
-
-                const userId = user.uid;
-                const userMaterialsConfigDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/config/materials`);
-                const buchasCollectionRef = firebase.collection(db, `artifacts/${appId}/users/${userId}/buchas`);
-
-                // Fetch materials config
-                const fetchMaterialsConfig = async () => {
                     try {
-                        const docSnap = await firebase.getDoc(userMaterialsConfigDocRef);
-                        if (docSnap.exists()) {
-                            setMaterialsConfig(docSnap.data().data || []);
-                        } else {
-                            // Set default config if none exists for this user
-                            const defaultMaterials = [
-                                { name: 'Aço 1045', config: { margem_lucro: '20', hora_maquina: '10', ferramenta: '5', perda_peca: '5.00' } },
-                                { name: 'Alumínio', config: { margem_lucro: '25', hora_maquina: '12', ferramenta: '6', perda_peca: '4.50' } },
-                                { name: 'Bronze', config: { margem_lucro: '15', hora_maquina: '8', ferramenta: '4', perda_peca: '6.00' } },
-                            ];
-                            setMaterialsConfig(defaultMaterials);
-                            // Save default config for the new user
-                            await firebase.setDoc(userMaterialsConfigDocRef, { data: defaultMaterials });
-                            showToast("Configurações padrão carregadas. Salve para persistir.", "info");
-                        }
+                        await loadAccount();
                     } catch (error) {
-                        console.error("Error fetching materials config:", error);
-                        showToast("Erro ao carregar configurações de materiais.", "error");
+                        console.error("Erro ao restaurar sessão local:", error);
+                        localApi.setToken('');
+                        if (active) setUser(null);
+                    } finally {
+                        if (active) {
+                            setIsAuthReady(true);
+                            setLoadingData(false);
+                        }
                     }
+                })();
+                return () => {
+                    active = false;
                 };
+            }, []);
 
-                // Setup real-time listener for buchas list
-                const unsubscribeBuchas = firebase.onSnapshot(buchasCollectionRef, (snapshot) => {
-                    const buchas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setBuchasList(buchas);
+            const handleLoginSuccess = async () => {
+                setLoadingData(true);
+                try {
+                    await loadAccount();
+                } catch (error) {
+                    console.error("Erro ao carregar dados locais:", error);
+                    showToast("Erro ao carregar os dados locais.", "error");
+                    localApi.setToken('');
+                    setUser(null);
+                } finally {
+                    setIsAuthReady(true);
                     setLoadingData(false);
-                }, (error) => {
-                    console.error("Error listening to buchas list:", error);
-                    showToast("Erro ao carregar lista de buchas.", "error");
-                    setLoadingData(false);
-                });
-
-                fetchMaterialsConfig();
-
-                return () => unsubscribeBuchas(); // Clean up listener on unmount/user change
-            }, [isAuthReady, user, db, appId]);
+                }
+            };
 
             const handleSaveConfig = async () => {
-                if (!user || user.isAnonymous || !db || !appId) {
+                if (!user) {
                     showToast("Você precisa estar logado para salvar as configurações.", "error");
                     return;
                 }
-                const userId = user.uid;
-                const userMaterialsConfigDocRef = firebase.doc(db, `artifacts/${appId}/users/${userId}/config/materials`);
                 try {
-                    await firebase.setDoc(userMaterialsConfigDocRef, { data: materialsConfig });
+                    const saved = await localApi.request('/api/materials', {
+                        method: 'PUT',
+                        body: { data: materialsConfig },
+                    });
+                    setMaterialsConfig(saved.data || []);
                     showToast("Configurações salvas com sucesso!", "success");
                 } catch (error) {
                     console.error("Error saving materials config:", error);
@@ -1019,12 +955,13 @@
 
             const handleLogout = async () => {
                 try {
-                    await firebase.signOut(auth);
-                    showToast("Desconectado com sucesso!", "success");
-                    // Clear local state and let the auth listener handle re-authentication (anonymous)
+                    await localApi.request('/api/logout', { method: 'POST' });
+                    localApi.setToken('');
+                    setUser(null);
                     setBuchasList([]);
                     setMaterialsConfig([]);
                     setActiveTab('cadastro');
+                    showToast("Desconectado com sucesso!", "success");
                 } catch (error) {
                     console.error("Error logging out:", error);
                     showToast("Erro ao desconectar.", "error");
@@ -1042,7 +979,7 @@
 
             // If user is not logged in (or is anonymous), show the AuthScreen
             if (!user || user.isAnonymous) {
-                return <AuthScreen onLoginSuccess={() => {}} showToast={showToast} />;
+                return <AuthScreen onLoginSuccess={handleLoginSuccess} showToast={showToast} />;
             }
 
             return (
@@ -1092,9 +1029,6 @@
                                 setBuchasList={setBuchasList}
                                 materialsConfig={materialsConfig}
                                 showToast={showToast}
-                                db={db}
-                                userId={user.uid}
-                                appId={appId}
                             />
                         )}
                         {activeTab === 'orcamento' && (
